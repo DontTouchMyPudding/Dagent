@@ -13,3 +13,5 @@ wheels/
 .worktrees/
 /docs
 /example.db
+
+.env
