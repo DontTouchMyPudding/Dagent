@@ -3,11 +3,11 @@ import logging
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 
-from src.agent.chat.chat import chat
-from src.agent.core.config import config
-from src.agent.core.llm import get_embeddings
-from src.agent.rag.retrieval.retriever import retrieve_query
-from src.agent.rag.storage.vectorstore import embedding_data
+from backend.src.agent.chat.chat import chat
+from backend.src.agent.core.config import config
+from backend.src.agent.core.llm import get_embeddings
+from backend.src.agent.rag.retrieval.retriever import retrieve_query
+from backend.src.agent.rag.storage.vectorstore import embedding_data
 
 logging.basicConfig(level=logging.ERROR)
 load_dotenv()

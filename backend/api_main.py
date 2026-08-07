@@ -5,12 +5,12 @@ import uvicorn
 from fastapi import FastAPI, APIRouter
 from sqlalchemy.engine.base import Connection
 
-from core.database import init_db, dispose_db
-from router import chat_app
+from backend.core.database import init_db, dispose_db
+from backend.router import chat_app
 from alembic import context
 
 logging.basicConfig(level=logging.INFO)
-from models.base import Base
+from backend.models.base import Base
 
 target_metadata = Base.metadata
 
@@ -36,7 +36,7 @@ def create_app():
 
 if __name__ == '__main__':
     uvicorn.run(
-        "api_main:create_app",
+        "backend.api_main:create_app",
         host="0.0.0.0",
         port=8000,
         env_file=".env"
