@@ -3,7 +3,7 @@ from enum import Enum as _Enum
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Text, Enum, Index, String
 
-from models.base import Base
+from backend.models.base import Base
 
 
 class Role(_Enum):
