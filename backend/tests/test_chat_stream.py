@@ -5,9 +5,9 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from backend.api_main import create_app
-from backend.router.chat import ChatRequest, event_stream_task
-from backend.utils.stream_manage import sm
+from api_main import create_app
+from router.chat import ChatRequest, event_stream_task
+from utils.stream_manage import sm
 
 
 class FakeChunk:
@@ -25,7 +25,7 @@ def test_subscript_exits_after_llm_finishes():
 
     async def run():
         request = ChatRequest(message="hello", task_id="test-task-id")
-        with patch("backend.router.chat.call_llm", fake_call_llm):
+        with patch("router.chat.call_llm", fake_call_llm):
             task_id = sm.create_stream_task("test-task-id", event_stream_task, request=request)
             chunks = []
             async for chunk in sm.subscript(task_id):
@@ -41,7 +41,7 @@ def test_subscript_exits_after_llm_finishes():
 @pytest.mark.anyio
 async def test_http_stream_closes_when_llm_finishes():
     """通过 HTTP SSE 接口验证 LLM 流结束后响应自动关闭。"""
-    with patch("backend.router.chat.call_llm", fake_call_llm):
+    with patch("router.chat.call_llm", fake_call_llm):
         transport = httpx.ASGITransport(app=create_app())
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             async with client.stream("POST", "/api/chat/stream", json={"message": "hello", "task_id": "test-task-id"}) as response:

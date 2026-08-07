@@ -4,7 +4,7 @@ from typing import Optional
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
-from backend.config import Settings
+from config import Settings
 
 settings = Settings()
 client = AsyncOpenAI(api_key=settings.LLM_API_KEY, base_url=settings.LLM_BASE_URL)

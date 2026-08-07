@@ -9,11 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 from starlette.responses import StreamingResponse
 
-from backend.core.database import get_db
-from backend.schemas.response import Response
-from backend.service import call_llm
-from backend.utils.stream_manage import sm
-from backend.models.chat_model import Sessions
+from core.database import get_db
+from schemas.response import Response
+from service import call_llm
+from utils.stream_manage import sm
+from models.chat_model import Sessions
 
 chat_app = APIRouter(prefix="/chat", tags=["chat"])
 

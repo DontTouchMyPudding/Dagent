@@ -2,9 +2,9 @@ from typing import Literal
 
 from langchain_core.tools import tool
 
-from backend.src.agent.core.llm import get_embeddings
-from backend.src.agent.rag.retrieval.retriever import retrieve_query
-from backend.src.agent.core.config import config
+from src.agent.core.llm import get_embeddings
+from src.agent.rag.retrieval.retriever import retrieve_query
+from src.agent.core.config import config
 from tavily import TavilyClient
 
 embeddings = get_embeddings()

@@ -1,8 +1,8 @@
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage
 
-from backend.src.agent.core.llm import create_llm
-from backend.src.agent.tools.builtIn import retrieve_tool, web_search_by_tavily
+from src.agent.core.llm import create_llm
+from src.agent.tools.builtIn import retrieve_tool, web_search_by_tavily
 
 system_prompt = """你是一个严谨的信息整合助手，回答时必须精确标注每句话的信息来源。
 

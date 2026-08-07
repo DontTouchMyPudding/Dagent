@@ -7,5 +7,5 @@ class Settings(BaseSettings):
     LLM_API_KEY: str
 
     class Config:
-        env_file = ".env"
+        env_file = "../.env"
         extra = "ignore"

@@ -1,9 +1,9 @@
 from pathlib import Path
 from langchain_chroma import Chroma
 from langchain_core.embeddings import Embeddings
-from backend.src.agent.rag.ingestion.loader import Loader
+from src.agent.rag.ingestion.loader import Loader
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-from backend.src.agent.common.utils import chunk_add_metadata
+from src.agent.common.utils import chunk_add_metadata
 import logging
 
 logger = logging.getLogger(__name__)

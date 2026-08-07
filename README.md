@@ -1,3 +1,4 @@
 ```Shell
-uv run python backend/api_main.py
+cd backend
+uv run python api_main.py
 ```
