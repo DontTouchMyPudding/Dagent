@@ -1,5 +1,5 @@
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from src.agent.core.config import config
+from backend.src.agent.core.config import config
 
 
 def get_embeddings():

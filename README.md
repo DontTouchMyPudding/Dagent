@@ -1,3 +1,3 @@
 ```Shell
-uv run api_main.py
+uv run python backend/api_main.py
 ```
