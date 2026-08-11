@@ -1,21 +1,16 @@
 import asyncio
 import logging
-from typing import Dict
-from dataclasses import dataclass, field
+from typing import Dict, AsyncGenerator
+
+from runtime.stream_manage.base import StreamManager, Task, StreamEvent
 
 
-@dataclass
-class Task:
-    history: asyncio.Queue = field(default_factory=asyncio.Queue)
-    task: asyncio.Task | None = None
-
-
-class StreamManage:
+class StreamManageByMemo(StreamManager):
     def __init__(self):
         self._container: Dict[str, Task] = {}
 
-    async def commit(self, task_id: str, values: str) -> None:
-        await self._container[task_id].history.put(values)
+    def commit(self, task_id: str, event: StreamEvent) -> None:
+        self._container[task_id].events.append(event)
 
     def __callback(self, task_id: str):
         logging.info(f"task {task_id} over! clear container cache")
@@ -23,7 +18,7 @@ class StreamManage:
             return
         self._container.pop(task_id)
 
-    def create_stream_task(self, task_id: str, coro, *args, **kwargs):
+    def publish(self, task_id: str, coro, *args, **kwargs):
         if self._container.get(task_id) is not None:
             return task_id
         self._container[task_id] = Task()
@@ -32,18 +27,18 @@ class StreamManage:
         self._container[task_id].task = task
         return task_id
 
-    async def subscript(self, task_id: str):
+    async def subscribe(self, task_id: str) -> AsyncGenerator[StreamEvent, None]:
         target = self._container[task_id]
         if not target:
             raise Exception(f"task {task_id} not found")
-        logging.info("task id: %s", task_id)
-        queue = target.history
-        while not target.task.done() or not queue.empty():
-            try:
-                data = await asyncio.wait_for(queue.get(), timeout=1)
-                yield data
-            except asyncio.TimeoutError:
-                continue
+        events = target.events
+        index = 0
+        while not target.task.done():
+            if index < len(events):
+                yield events[index]
+                index += 1
+            else:
+                await asyncio.sleep(0.1)
 
     async def stop(self, task_id: str):
         target = self._container[task_id]
@@ -55,4 +50,4 @@ class StreamManage:
         logging.info("任务: %s,已经取消", task_id)
 
 
-sm = StreamManage()
+sm = StreamManageByMemo()

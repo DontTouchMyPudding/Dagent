@@ -39,5 +39,4 @@ if __name__ == '__main__':
         "api_main:create_app",
         host="0.0.0.0",
         port=8000,
-        env_file=".env"
     )

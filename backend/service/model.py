@@ -1,26 +1,81 @@
 import logging
-from typing import Optional
+from typing import Optional, List, Any, AsyncIterator
 
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from langchain_core.messages import BaseMessage, ToolMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from config import Settings
 
 settings = Settings()
-client = AsyncOpenAI(api_key=settings.LLM_API_KEY, base_url=settings.LLM_BASE_URL)
 
 
-async def call_llm(messages: list[ChatCompletionMessageParam], system_prompt: Optional[str] = None):
-    inputs = [{"content": system_prompt, "role": "system"}, *messages]
-    index = 0 if system_prompt else 1
-    safe_messages = inputs[index:]
-    logging.info(f"Safe messages: {safe_messages}")
-    stream = await client.chat.completions.create(
+async def agent_loop(
+        llm,
+        tools: list,
+        messages: list[BaseMessage],
+        max_iter: int = 10,
+) -> AsyncIterator[dict]:
+    tools_by_name = {t.name: t for t in tools}
+
+    for step in range(max_iter):
+        full_chunk = None
+
+        async for chunk in llm.astream(messages):
+            if reasoning_content := chunk.additional_kwargs.get("reasoning_content"):
+                yield {"type": "think", "data": reasoning_content}
+            if chunk.content:
+                yield {"type": "token", "data": chunk.content}
+            full_chunk = chunk if full_chunk is None else full_chunk + chunk
+
+        if full_chunk is None:
+            logging.warning("empty stream at step %s", step)
+            break
+
+        if not full_chunk.tool_calls:
+            messages.append(full_chunk)
+            break
+
+        messages.append(full_chunk)
+
+        for tc in full_chunk.tool_calls:
+            yield {"type": "tool_call", "data": {"name": tc["name"], "args": tc["args"], "id": tc["id"]}}
+
+            tool = tools_by_name.get(tc["name"])
+            if tool is None:
+                result = f"未找到工具: {tc['name']}"
+                success = False
+                error = result
+            else:
+                try:
+                    result = await tool.ainvoke(tc["args"])
+                    success = True
+                    error = None
+                except Exception as e:
+                    result = f"工具执行出错: {e}"
+                    success = False
+                    error = str(e)
+
+            yield {"type": "tool_result", "data": {"name": tc["name"], "output": str(result), "success": success, "error": error}}
+            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+
+        if step == max_iter - 1:
+            yield {"type": "warning", "data": "已达最大迭代次数，强制结束"}
+
+
+async def run_agent(
+        messages: list[BaseMessage],
+        tools: Optional[List[Any]] = None,
+        system_prompt: Optional[str] = None) -> AsyncIterator[dict]:
+    llm = ChatOpenAI(
         model=settings.LLM_MODEL_NAME,
-        messages=safe_messages,
-        stream=True,
-        timeout=60
+        base_url=settings.LLM_BASE_URL,
+        api_key=SecretStr(settings.LLM_API_KEY),
+        streaming=True,
+        timeout=60,
+        extra_body={"enable_thinking": True}
     )
-
-    async for message in stream:
-        yield message
+    llm_with_tools = llm.bind_tools(tools or [])
+    full_messages = [SystemMessage(content=system_prompt or ""), *messages]
+    async for chunk in agent_loop(llm_with_tools, tools or [], full_messages):
+        yield chunk
