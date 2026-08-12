@@ -14,7 +14,7 @@ from core.database import get_db
 from runtime.stream_manage.base import StreamEvent
 from runtime.stream_manage.stream_manage import sm
 from schemas.response import Response
-from service import run_agent
+from service import run_agent, run_agent2
 from services.exceptions import SessionNotFoundError
 from services.session import SessionService
 

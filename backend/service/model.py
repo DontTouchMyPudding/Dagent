@@ -1,6 +1,8 @@
+import json
 import logging
 from typing import Optional, List, Any, AsyncIterator
 
+from langchain.agents import create_agent
 from langchain_core.messages import BaseMessage, ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
@@ -56,7 +58,8 @@ async def agent_loop(
                     success = False
                     error = str(e)
 
-            yield {"type": "tool_result", "data": {"name": tc["name"], "output": str(result), "success": success, "error": error}}
+            yield {"type": "tool_result",
+                   "data": {"name": tc["name"], "output": str(result), "success": success, "error": error}}
             messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
 
         if step == max_iter - 1:
@@ -79,3 +82,27 @@ async def run_agent(
     full_messages = [SystemMessage(content=system_prompt or ""), *messages]
     async for chunk in agent_loop(llm_with_tools, tools or [], full_messages):
         yield chunk
+
+
+async def run_agent2(messages: list[BaseMessage],
+                     tools: Optional[List[Any]] = None, ):
+    llm = ChatOpenAI(
+        model=settings.LLM_MODEL_NAME,
+        base_url=settings.LLM_BASE_URL,
+        api_key=SecretStr(settings.LLM_API_KEY),
+        streaming=True,
+        timeout=60,
+        extra_body={"enable_thinking": True}
+    )
+    agent = create_agent(model=llm, tools=tools)
+    stream = await agent.astream_events(input={"messages": messages}, version="v2")
+    async for message in stream.messages:
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            async for tool_call in message.tool_calls:
+                result = {"type": "tools", "content": tool_call}
+                logging.info(result)
+                yield result
+        async for chunk in message.text:
+            result = {"type": "token", "content": chunk}
+            logging.info(result)
+            yield result
