@@ -91,6 +91,55 @@ export default function MessageBubble({
                 </div>
               </div>
             )}
+            {((message.toolCalls?.length ?? 0) > 0 ||
+              (message.toolResults?.length ?? 0) > 0) && (
+              <div style={{ marginBottom: 12 }}>
+                {message.toolCalls?.map((tool, index) => {
+                  const result = message.toolResults?.[index];
+                  const status = result
+                    ? result.success === false
+                      ? "error"
+                      : "success"
+                    : "pending";
+                  const statusColor =
+                    status === "pending"
+                      ? "#fadb14"
+                      : status === "success"
+                        ? "#52c41a"
+                        : "#ff4d4f";
+
+                  return (
+                    <div
+                      key={tool.id || index}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "8px 12px",
+                        marginBottom: 8,
+                        borderRadius: 8,
+                        backgroundColor: "#2a3a3a",
+                        color: "#b0c4c4",
+                        fontSize: 13,
+                        cursor: "pointer",
+                        userSelect: "none",
+                      }}
+                    >
+                      <span>{tool.name}</span>
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          backgroundColor: statusColor,
+                          boxShadow: `0 0 6px ${statusColor}`,
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <Streamdown plugins={{ math, code }}>{message.content}</Streamdown>
             {isStreaming && !message.content && (
               <Spin size="small" style={{ marginTop: 8 }} />

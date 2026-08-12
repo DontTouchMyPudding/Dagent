@@ -9,10 +9,8 @@ vi.mock("../../src/utils/streamFetch", () => ({
 
 const mockStreamText = vi.mocked(streamText);
 
-function makeChunk(delta: Record<string, string>): string {
-  const inner = JSON.stringify({ choices: [{ delta }] });
-  const escaped = inner.replace(/"/g, '\\"');
-  return `event: message\nid: 1\ndata: "${escaped}"`;
+function makeEvent(type: string, data: unknown): string {
+  return `id: 1\nevent: token\ndata: ${JSON.stringify({ type, data })}`;
 }
 
 describe("useChatStream", () => {
@@ -31,8 +29,15 @@ describe("useChatStream", () => {
 
   it("streams a user message and assistant response, then calls onComplete", async () => {
     mockStreamText.mockImplementation(async ({ onChunk, onOver }) => {
-      onChunk(makeChunk({ reasoning_content: "thinking" }));
-      onChunk(makeChunk({ content: "answer" }));
+      onChunk(
+        makeEvent("tool_call", {
+          name: "get_water",
+          args: { city: "北京" },
+          id: "call_1",
+        }),
+      );
+      onChunk(makeEvent("tool_result", { name: "get_water", output: "36°C" }));
+      onChunk(makeEvent("token", "answer"));
       onOver?.();
     });
 
@@ -55,11 +60,14 @@ describe("useChatStream", () => {
       assistantMessage: expect.objectContaining({
         role: "assistant",
         content: "answer",
-        thinking: "thinking",
+        toolCalls: [
+          { id: "call_1", name: "get_water", args: { city: "北京" } },
+        ],
+        toolResults: [{ name: "get_water", output: "36°C" }],
       }),
     });
     expect(result.current.activeMessages).toEqual([]);
-    expect(sessionStorage.getItem("chat:streaming:s1")).toBeNull();
+    expect(sessionStorage.getItem("chat:streaming:s1")).not.toBeNull();
   });
 
   it("aborts stream and clears sessionStorage on stop", async () => {
@@ -100,7 +108,7 @@ describe("useChatStream", () => {
     sessionStorage.setItem("chat:streaming:s1", "1");
 
     mockStreamText.mockImplementation(async ({ onChunk, onOver }) => {
-      onChunk(makeChunk({ content: "answer" }));
+      onChunk(makeEvent("token", "answer"));
       onOver?.();
     });
 

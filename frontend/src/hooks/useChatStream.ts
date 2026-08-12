@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Message } from "../utils/types";
+import { Message, ToolCall, ToolResult } from "../utils/types";
 import { parseChunk } from "../utils/streamParser";
 import { streamText } from "../utils/streamFetch";
 
@@ -47,6 +47,8 @@ export function useChatStream(
   const sessionIdRef = useRef(sessionId);
   const thinkRef = useRef("");
   const contentRef = useRef("");
+  const toolCallsRef = useRef<ToolCall[]>([]);
+  const toolResultsRef = useRef<ToolResult[]>([]);
   const pendingRef = useRef<number | null>(null);
   const activeMessagesRef = useRef<Message[]>([]);
 
@@ -61,6 +63,8 @@ export function useChatStream(
     }
     thinkRef.current = "";
     contentRef.current = "";
+    toolCallsRef.current = [];
+    toolResultsRef.current = [];
     abortControllerRef.current = null;
     setLoading(false);
     setStreaming(false);
@@ -71,10 +75,20 @@ export function useChatStream(
     pendingRef.current = null;
     const thinking = thinkRef.current;
     const content = contentRef.current;
+    const toolCalls = toolCallsRef.current;
+    const toolResults = toolResultsRef.current;
     thinkRef.current = "";
     contentRef.current = "";
+    toolCallsRef.current = [];
+    toolResultsRef.current = [];
 
-    if (!thinking && !content) return;
+    if (
+      !thinking &&
+      !content &&
+      toolCalls.length === 0 &&
+      toolResults.length === 0
+    )
+      return;
 
     const prev = activeMessagesRef.current;
     if (prev.length === 0) return;
@@ -87,6 +101,8 @@ export function useChatStream(
             ...last,
             content: last.content + content,
             thinking: (last.thinking ?? "") + thinking,
+            toolCalls: [...(last.toolCalls ?? []), ...toolCalls],
+            toolResults: [...(last.toolResults ?? []), ...toolResults],
           }
         : msg,
     );
@@ -107,9 +123,13 @@ export function useChatStream(
       chunk?.split("\n\n").forEach((line) => {
         const parsed = parseChunk(line);
         if (parsed.type === "think") {
-          thinkRef.current += parsed.value;
-        } else if (parsed.type === "value") {
-          contentRef.current += parsed.value;
+          thinkRef.current += parsed.value as string;
+        } else if (parsed.type === "token" || parsed.type === "value") {
+          contentRef.current += parsed.value as string;
+        } else if (parsed.type === "tool_call") {
+          toolCallsRef.current.push(parsed.value as ToolCall);
+        } else if (parsed.type === "tool_result") {
+          toolResultsRef.current.push(parsed.value as ToolResult);
         }
         if (pendingRef.current === null) {
           pendingRef.current = requestAnimationFrame(flushToActiveMessages);
@@ -151,10 +171,6 @@ export function useChatStream(
         }
         setError(streamError);
       } finally {
-        const currentSessionId = sessionIdRef.current;
-        if (currentSessionId) {
-          sessionStorage.removeItem(getStorageKey(currentSessionId));
-        }
         if (pendingRef.current !== null) {
           cancelAnimationFrame(pendingRef.current);
           pendingRef.current = null;
@@ -179,6 +195,7 @@ export function useChatStream(
       }
 
       setLoading(true);
+      sessionStorage.removeItem(getStorageKey(currentSessionId));
 
       const userMessage: Message = {
         id: generateId(),

@@ -18,10 +18,8 @@ vi.mock("../../src/api/chat", async () => {
 
 const mockStreamText = vi.mocked(streamText);
 
-function makeChunk(delta: Record<string, string>): string {
-  const inner = JSON.stringify({ choices: [{ delta }] });
-  const escaped = inner.replace(/"/g, '\\"');
-  return `event: message\nid: 1\ndata: "${escaped}"`;
+function makeEvent(type: string, data: unknown): string {
+  return `id: 1\nevent: token\ndata: ${JSON.stringify({ type, data })}`;
 }
 
 function createWrapper() {
@@ -51,7 +49,7 @@ describe("useAgent", () => {
 
   it("appends streamed messages to messagesMap and returns combined messages", async () => {
     mockStreamText.mockImplementation(async ({ onChunk, onOver }) => {
-      onChunk(makeChunk({ content: "world" }));
+      onChunk(makeEvent("token", "world"));
       onOver?.();
     });
 
@@ -80,7 +78,7 @@ describe("useAgent", () => {
 
   it("keeps messages isolated per session", async () => {
     mockStreamText.mockImplementation(async ({ onChunk, onOver }) => {
-      onChunk(makeChunk({ content: "world" }));
+      onChunk(makeEvent("token", "world"));
       onOver?.();
     });
 

@@ -92,12 +92,6 @@ export function useAgent(sessionId: string | null): UseAgentReturn {
     return null;
   }, [chatError, updateSessionTitleMutation.error]);
 
-  useEffect(() => {
-    return () => {
-      stopChatStream();
-    };
-  }, [stopChatStream]);
-
   return {
     messages,
     sendMessage,

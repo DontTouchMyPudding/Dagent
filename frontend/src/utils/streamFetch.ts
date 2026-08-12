@@ -2,13 +2,14 @@ interface StreamTextOptions<TBody> {
   url: string;
   body: TBody;
   onChunk: (chunk: string) => void;
+  onOver?: () => void;
   signal?: AbortSignal;
 }
 
 export async function streamText<TBody>(
-  options: StreamTextOptions<TBody>
+  options: StreamTextOptions<TBody>,
 ): Promise<void> {
-  const { url, body, onChunk, signal } = options;
+  const { url, body, onChunk, signal, onOver } = options;
 
   const response = await fetch(url, {
     method: "POST",
@@ -38,6 +39,7 @@ export async function streamText<TBody>(
         onChunk(chunk);
       }
     }
+    onOver?.();
   } finally {
     reader.releaseLock?.();
   }
