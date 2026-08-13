@@ -3,7 +3,8 @@ import { Message, ToolCall, ToolResult } from "../utils/types";
 import { parseChunk } from "../utils/streamParser";
 import { streamText } from "../utils/streamFetch";
 
-const API_URL = "/api/chat/stream";
+const STREAM_API_URL = "/api/chat/stream";
+const RESUME_API_URL = "/api/chat/resume";
 const STOPPED_ERROR = "生成已停止";
 
 export interface UseChatStreamOptions {
@@ -111,7 +112,7 @@ export function useChatStream(
       const currentSessionId = activeSessionIdRef.current;
       if (!currentSessionId) return;
 
-      sessionStorage.setItem(
+      localStorage.setItem(
         getStorageKey(currentSessionId),
         new Date().getUTCDate().toString(),
       );
@@ -136,11 +137,12 @@ export function useChatStream(
   );
 
   const clearReconnectRun = (sessionId: string) => {
-    sessionStorage.removeItem(getStorageKey(sessionId));
+    localStorage.removeItem(getStorageKey(sessionId));
   };
 
   const runStream = useCallback(
     async (
+      url: string,
       body: { message?: string; task_id: string },
       initialMessages: Message[],
     ): Promise<{ messages: Message[]; error: string | null }> => {
@@ -158,7 +160,7 @@ export function useChatStream(
 
       try {
         await streamText({
-          url: API_URL,
+          url,
           body,
           onChunk: handleChunk,
           signal: controller.signal,
@@ -200,7 +202,7 @@ export function useChatStream(
       }
 
       setLoading(true);
-      sessionStorage.removeItem(getStorageKey(currentSessionId));
+      localStorage.removeItem(getStorageKey(currentSessionId));
 
       const userMessage: Message = {
         id: generateId(),
@@ -214,6 +216,7 @@ export function useChatStream(
       };
 
       const { messages, error: streamError } = await runStream(
+        STREAM_API_URL,
         { message: text, task_id: currentSessionId },
         [userMessage, assistantMessage],
       );
@@ -235,7 +238,7 @@ export function useChatStream(
   const resumeOnMount = useCallback(() => {
     const currentSessionId = sessionId;
     if (!currentSessionId) return;
-    const mark = sessionStorage.getItem(getStorageKey(currentSessionId));
+    const mark = localStorage.getItem(getStorageKey(currentSessionId));
     if (!mark) return;
 
     setResuming(true);
@@ -246,7 +249,7 @@ export function useChatStream(
       content: "",
     };
 
-    runStream({ task_id: currentSessionId }, [assistantMessage]).then(
+    runStream(RESUME_API_URL, { task_id: currentSessionId }, [assistantMessage]).then(
       ({ messages, error: streamError }) => {
         if (!streamError || streamError === STOPPED_ERROR) {
           const assistant = messages.find((m) => m.role === "assistant");

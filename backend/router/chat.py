@@ -1,31 +1,26 @@
-import json
 import logging
 import time
 from random import randint
-from typing import Annotated, Optional
-from fastapi import APIRouter, Depends
+from typing import Annotated
+from fastapi import APIRouter, Depends, Request
 from fastapi.params import Query
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
+from api_models.Chat import StreamChatBody, ResumeChatBody
 from core.database import get_db
-from runtime.stream_manage.base import StreamEvent
-from runtime.stream_manage.stream_manage import sm
+from runtime.worker_manage.base import worker
 from schemas.response import Response
-from service import run_agent, run_agent2
+from service.sse_consumer import sse_consumer
+from service.start_run import start_run
 from services.exceptions import SessionNotFoundError
 from services.session import SessionService
 
 chat_app = APIRouter(prefix="/chat", tags=["chat"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
-
-
-class ChatRequest(BaseModel):
-    message: Optional[str] = None
-    task_id: str
 
 
 @tool
@@ -36,22 +31,6 @@ def get_water(city: str):
     """
     time.sleep(randint(1, 5))
     return {"city": city, "water": "36°C"}
-
-
-async def event_stream_task(task_id, commit, request: ChatRequest):
-    local_id = 0
-    try:
-        history_message = [{"role": "user", "content": request.message}]
-        async for steam_chunk in run_agent(history_message, tools=[get_water]):
-            local_id += 1
-            event = StreamEvent(id=str(local_id), event="token",
-                                data=json.dumps(steam_chunk, ensure_ascii=False))
-            commit(task_id, event)
-    except Exception as e:
-        logging.error(e)
-        local_id += 1
-        event = StreamEvent(id=str(local_id), event="error", data=str(e))
-        commit(task_id, event)
 
 
 @chat_app.get("/list")
@@ -101,17 +80,20 @@ async def rename(db: SessionDep, request: RenameRequest):
 
 
 @chat_app.post("/stream")
-async def chat_stream(body: ChatRequest):
-    task_id = sm.publish(body.task_id, event_stream_task, request=body)
+async def chat_stream(body: StreamChatBody, request: Request):
+    await start_run(body)
 
-    async def streaming():
-        try:
-            async for data in sm.subscribe(task_id):
-                yield f"id: {data.id}\nevent: {data.event}\ndata: {data.data}\n\n"
-        except Exception as e:
-            yield f"event: error\ndata: {str(e)}"
+    return StreamingResponse(sse_consumer(body.task_id, request), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+        "Transfer-Encoding": "chunked"
+    })
 
-    return StreamingResponse(streaming(), media_type="text/event-stream", headers={
+
+@chat_app.post("/resume")
+async def resume_chat_stream(body: ResumeChatBody, request: Request):
+    return StreamingResponse(sse_consumer(body.task_id, request), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
@@ -122,7 +104,7 @@ async def chat_stream(body: ChatRequest):
 @chat_app.post("/stop/{task_id}")
 async def stop_stream(task_id: str):
     try:
-        await sm.stop(task_id)
+        await worker.stop(task_id)
         return Response.success()
     except Exception as e:
         return Response.error(500, str(e))

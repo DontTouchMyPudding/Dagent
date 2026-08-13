@@ -9,7 +9,7 @@ from core.database import init_db, dispose_db
 from router import chat_app
 from alembic import context
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 from models.base import Base
 
 target_metadata = Base.metadata

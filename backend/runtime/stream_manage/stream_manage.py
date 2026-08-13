@@ -1,53 +1,87 @@
 import asyncio
 import logging
-from typing import Dict, AsyncGenerator
+from dataclasses import dataclass, field
+from typing import Dict, AsyncGenerator, Any, Optional, List
 
-from runtime.stream_manage.base import StreamManager, Task, StreamEvent
+from runtime.stream_manage.base import StreamEvent, END_EVENT, HEARTBEAT_EVENT, StreamManager
+
+
+@dataclass
+class _RunStream:
+    events: List[StreamEvent] = field(default_factory=list)
+    condition: asyncio.Condition = field(default_factory=asyncio.Condition)
 
 
 class StreamManageByMemo(StreamManager):
     def __init__(self):
-        self._container: Dict[str, Task] = {}
+        self._streams: Dict[str, _RunStream] = {}
+        self._event_id_container: Dict[str, int] = {}
 
-    def commit(self, task_id: str, event: StreamEvent) -> None:
-        self._container[task_id].events.append(event)
+    def _get_or_create_stream(self, task_id: str) -> _RunStream:
+        """创建或者获取StreamHistory"""
+        if task_id not in self._streams:
+            self._streams[task_id] = _RunStream()
+            self._event_id_container[task_id] = 0
+        return self._streams[task_id]
 
-    def __callback(self, task_id: str):
-        logging.info(f"task {task_id} over! clear container cache")
-        if task_id not in self._container:
-            return
-        self._container.pop(task_id)
+    def _get_next_id(self, task_id: str) -> str:
+        """自增id"""
+        current_id = self._event_id_container[task_id]
+        self._event_id_container[task_id] += 1
+        return str(current_id + 1)
 
-    def publish(self, task_id: str, coro, *args, **kwargs):
-        if self._container.get(task_id) is not None:
-            return task_id
-        self._container[task_id] = Task()
-        task = asyncio.create_task(coro(task_id, self.commit, *args, **kwargs))
-        task.add_done_callback(lambda _: self.__callback(task_id))
-        self._container[task_id].task = task
-        return task_id
+    async def publish_end(self, task_id):
+        stream = self._get_or_create_stream(task_id)
+        async with stream.condition:
+            stream.events.append(END_EVENT)
+            stream.condition.notify_all()
 
-    async def subscribe(self, task_id: str) -> AsyncGenerator[StreamEvent, None]:
-        target = self._container[task_id]
-        if not target:
-            raise Exception(f"task {task_id} not found")
-        events = target.events
-        index = 0
-        while not target.task.done():
-            if index < len(events):
-                yield events[index]
-                index += 1
-            else:
-                await asyncio.sleep(0.1)
+    async def publish(self, task_id: str, event: str, data: Any):
+        """主要负责发布event到self._streams"""
+        stream = self._get_or_create_stream(task_id)
+        stream_event = StreamEvent(id=str(self._get_next_id(task_id)), event=event, data=data)
+        async with stream.condition:
+            stream.events.append(stream_event)
+            stream.condition.notify_all()
 
-    async def stop(self, task_id: str):
-        target = self._container[task_id]
-        if not target:
-            raise Exception(f"task {task_id} not found")
-        if target.task.done():
-            raise Exception(f"task {task_id} already done")
-        target.task.cancel()
-        logging.info("任务: %s,已经取消", task_id)
+    async def subscribe(
+            self,
+            task_id: str,
+            *,
+            last_event_id: Optional[int] = None,
+            heartbeat_interval: float = 1.5
+    ) -> AsyncGenerator[StreamEvent, None]:
+        stream = self._get_or_create_stream(task_id)
+        index = last_event_id or 0
+        while True:
+            async with stream.condition:
+                if stream and index < len(stream.events):
+                    event = stream.events[index]
+                    index += 1
+
+                    if event is END_EVENT:
+                        event = END_EVENT
+                else:
+                    try:
+                        await asyncio.wait_for(stream.condition.wait(), timeout=heartbeat_interval)
+                    except asyncio.TimeoutError:
+                        event = HEARTBEAT_EVENT
+                    else:
+                        continue
+
+            yield event
+            if event is END_EVENT:
+                break
+
+    async def clear(self, task_id: str, delay: float = 0):
+        if delay > 0:
+            await asyncio.sleep(delay)
+        self._streams.pop(task_id)
+        self._event_id_container.pop(task_id)
+
+    async def close(self):
+        self._streams.clear()
+        self._event_id_container.clear()
 
 
 sm = StreamManageByMemo()

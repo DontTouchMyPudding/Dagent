@@ -1,7 +1,7 @@
 import abc
 import asyncio
 from dataclasses import dataclass, field
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Optional
 
 
 @dataclass(frozen=True)
@@ -23,21 +23,32 @@ HEARTBEAT_EVENT = StreamEvent(id='', event='__heartbeat__', data=None)
 
 class StreamManager(abc.ABC):
     @abc.abstractmethod
-    def commit(self, task_id: str, event: StreamEvent) -> None:
-        """"""
-        pass
-
-    @abc.abstractmethod
-    def publish(self, task_id, coro, *args, **kwargs) -> str:
+    async def publish(self, task_id: str, event: str, data: Any):
         """提交StreamEvent到对应Task的events"""
         pass
 
     @abc.abstractmethod
-    async def subscribe(self, task_id: str) -> AsyncGenerator[StreamEvent, None]:
+    async def publish_end(self, task_id):
+        """发送结束信号"""
+        pass
+
+    @abc.abstractmethod
+    async def subscribe(
+            self,
+            task_id: str,
+            *,
+            last_event_id: Optional[int] = None,
+            heartbeat_interval: float = 1.5
+    ) -> AsyncGenerator[StreamEvent, None]:
         """订阅事件"""
         pass
 
     @abc.abstractmethod
-    async def stop(self, task_id) -> None:
-        """停止订阅"""
+    async def clear(self, task_id: str, delay: float = 0):
+        """清楚指定的task_id,用于结束时清楚"""
+        pass
+
+    @abc.abstractmethod
+    async def close(self):
+        """清楚所有"""
         pass
