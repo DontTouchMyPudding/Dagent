@@ -1,16 +1,18 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Layout } from "antd";
 import { useSessions } from "../hooks/useSessions";
-import { useAgent } from "../hooks/useAgent";
 import Sidebar from "../components/Sidebar";
 import ChatMainArea from "../components/ChatMainArea";
+import KeepAlive from "../components/KeepAlive";
+import ChatSession from "../components/ChatSession";
 
 const { Header } = Layout;
 
 export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
   const {
     sessions,
@@ -21,20 +23,10 @@ export default function ChatPage() {
     error: sessionsError,
   } = useSessions({ urlSessionId: sessionId });
 
-  const {
-    messages,
-    sendMessage,
-    stop,
-    loading: chatLoading,
-    streaming,
-    error: chatError,
-  } = useAgent(activeSessionId);
-
   const handleNewChat = useCallback(() => {
-    stop();
     selectSession(null);
     navigate("/chat");
-  }, [navigate, selectSession, stop]);
+  }, [navigate, selectSession]);
 
   const handleSelectSession = useCallback(
     (id: string) => {
@@ -44,19 +36,29 @@ export default function ChatPage() {
     [navigate, selectSession],
   );
 
-  const handleSend = useCallback(
-    async (text: string) => {
-      if (!activeSessionId) {
-        const newId = await createSession();
-        navigate(`/chat/${newId}`, { replace: true });
-      }
-      await sendMessage(text);
+  const handleSessionSend = useCallback(
+    async (_sessionId: string, text: string) => {
+      setPendingMessage(null);
+      // The actual message was sent by ChatSession/useAgent.
+      // This callback is used for parent-level side effects if needed.
+      void _sessionId;
+      void text;
     },
-    [activeSessionId, createSession, navigate, sendMessage],
+    [],
   );
 
-  const loading = sessionsLoading || chatLoading;
-  const error = sessionsError ?? chatError;
+  const handleSessionStop = useCallback(() => {
+    // No-op wrapper; ChatSession already calls useAgent.stop().
+  }, []);
+
+  const handleEmptySend = useCallback(
+    async (text: string) => {
+      const newId = await createSession();
+      setPendingMessage(text);
+      navigate(`/chat/${newId}`, { replace: true });
+    },
+    [createSession, navigate],
+  );
 
   return (
     <Layout style={{ height: "100vh", backgroundColor: "#0f1115" }}>
@@ -80,14 +82,32 @@ export default function ChatPage() {
           onNewChat={handleNewChat}
           onSelectSession={handleSelectSession}
         />
-        <ChatMainArea
-          messages={messages}
-          onSend={handleSend}
-          onStop={stop}
-          loading={loading}
-          streaming={streaming}
-          error={error}
-        />
+        {activeSessionId ? (
+          <KeepAlive activeKey={activeSessionId} max={10}>
+            {(sessionId) => (
+              <ChatSession
+                key={sessionId}
+                sessionId={sessionId}
+                autoSendMessage={
+                  sessionId === activeSessionId
+                    ? (pendingMessage ?? undefined)
+                    : undefined
+                }
+                onSend={(text) => handleSessionSend(sessionId, text)}
+                onStop={handleSessionStop}
+              />
+            )}
+          </KeepAlive>
+        ) : (
+          <ChatMainArea
+            messages={[]}
+            onSend={handleEmptySend}
+            onStop={() => {}}
+            loading={sessionsLoading}
+            streaming={false}
+            error={sessionsError}
+          />
+        )}
       </Layout>
     </Layout>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Message } from "../utils/types";
 import { useChatStream } from "./useChatStream";
@@ -16,13 +16,8 @@ export interface UseAgentReturn {
   error: string | null;
 }
 
-export function useAgent(sessionId: string | null): UseAgentReturn {
-  const [messagesMap, setMessagesMap] = useState<Record<string, Message[]>>({});
-
-  const sessionIdRef = useRef(sessionId);
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
+export function useAgent(sessionId: string): UseAgentReturn {
+  const [messages, setMessages] = useState<Message[]>([]);
 
   const updateSessionTitleMutation = useMutation({
     mutationFn: (variables: { sessionId: string; title: string }) =>
@@ -30,27 +25,24 @@ export function useAgent(sessionId: string | null): UseAgentReturn {
   });
 
   const handleStreamComplete = useCallback(
-    (params: { userMessage: Message | null; assistantMessage: Message }) => {
+    (params: {
+      sessionId: string;
+      userMessage: Message | null;
+      assistantMessage: Message;
+    }) => {
       const { userMessage, assistantMessage } = params;
-      const currentSessionId = sessionIdRef.current;
-      if (!currentSessionId) return;
-
-      setMessagesMap((prev) => {
-        const existing = prev[currentSessionId] ?? [];
-        const toAdd = userMessage
-          ? [userMessage, assistantMessage]
-          : [assistantMessage];
-        return {
-          ...prev,
-          [currentSessionId]: [...existing, ...toAdd],
-        };
-      });
+      setMessages((prev) => [
+        ...prev,
+        ...(userMessage ? [userMessage] : []),
+        assistantMessage,
+      ]);
     },
     [],
   );
 
   const {
     activeMessages,
+    activeSessionId,
     sendMessage: sendChatMessage,
     resumeOnMount,
     stop: stopChatStream,
@@ -71,19 +63,16 @@ export function useAgent(sessionId: string | null): UseAgentReturn {
   );
 
   const stop = useCallback(() => {
-    const currentSessionId = sessionIdRef.current;
-    if (currentSessionId) {
-      stopChat(currentSessionId).catch(() => {
-        // 后端停止请求失败不影响前端状态重置
-      });
-    }
+    stopChat(sessionId).catch(() => {
+      // 后端停止请求失败不影响前端状态重置
+    });
     stopChatStream();
-  }, [stopChatStream]);
+  }, [stopChatStream, sessionId]);
 
-  const messages = useMemo(() => {
-    if (!sessionId) return [];
-    return [...(messagesMap[sessionId] ?? []), ...activeMessages];
-  }, [sessionId, messagesMap, activeMessages]);
+  const combinedMessages = useMemo(() => {
+    if (activeSessionId !== sessionId) return messages;
+    return [...messages, ...activeMessages];
+  }, [sessionId, messages, activeMessages, activeSessionId]);
 
   const error = useMemo(() => {
     if (chatError) return chatError;
@@ -93,7 +82,7 @@ export function useAgent(sessionId: string | null): UseAgentReturn {
   }, [chatError, updateSessionTitleMutation.error]);
 
   return {
-    messages,
+    messages: combinedMessages,
     sendMessage,
     stop,
     loading,

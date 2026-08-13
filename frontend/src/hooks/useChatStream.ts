@@ -4,9 +4,11 @@ import { parseChunk } from "../utils/streamParser";
 import { streamText } from "../utils/streamFetch";
 
 const API_URL = "/api/chat/stream";
+const STOPPED_ERROR = "生成已停止";
 
 export interface UseChatStreamOptions {
   onComplete?: (params: {
+    sessionId: string;
     userMessage: Message | null;
     assistantMessage: Message;
   }) => void;
@@ -14,6 +16,7 @@ export interface UseChatStreamOptions {
 
 export interface UseChatStreamReturn {
   activeMessages: Message[];
+  activeSessionId: string | null;
   sendMessage: (text: string) => Promise<void>;
   resumeOnMount: () => void;
   stop: () => void;
@@ -38,13 +41,14 @@ export function useChatStream(
   const { onComplete } = options;
 
   const [activeMessages, setActiveMessages] = useState<Message[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
-  const sessionIdRef = useRef(sessionId);
+  const activeSessionIdRef = useRef<string | null>(null);
   const thinkRef = useRef("");
   const contentRef = useRef("");
   const toolCallsRef = useRef<ToolCall[]>([]);
@@ -52,19 +56,11 @@ export function useChatStream(
   const pendingRef = useRef<number | null>(null);
   const activeMessagesRef = useRef<Message[]>([]);
 
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
-
   const clearStreamState = useCallback(() => {
     if (pendingRef.current !== null) {
       cancelAnimationFrame(pendingRef.current);
       pendingRef.current = null;
     }
-    thinkRef.current = "";
-    contentRef.current = "";
-    toolCallsRef.current = [];
-    toolResultsRef.current = [];
     abortControllerRef.current = null;
     setLoading(false);
     setStreaming(false);
@@ -112,7 +108,7 @@ export function useChatStream(
 
   const handleChunk = useCallback(
     (chunk: string) => {
-      const currentSessionId = sessionIdRef.current;
+      const currentSessionId = activeSessionIdRef.current;
       if (!currentSessionId) return;
 
       sessionStorage.setItem(
@@ -139,6 +135,10 @@ export function useChatStream(
     [flushToActiveMessages],
   );
 
+  const clearReconnectRun = (sessionId: string) => {
+    sessionStorage.removeItem(getStorageKey(sessionId));
+  };
+
   const runStream = useCallback(
     async (
       body: { message?: string; task_id: string },
@@ -146,6 +146,8 @@ export function useChatStream(
     ): Promise<{ messages: Message[]; error: string | null }> => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      activeSessionIdRef.current = body.task_id;
+      setActiveSessionId(body.task_id);
 
       setActiveMessages(initialMessages);
       activeMessagesRef.current = initialMessages;
@@ -161,9 +163,10 @@ export function useChatStream(
           onChunk: handleChunk,
           signal: controller.signal,
         });
+        clearReconnectRun(body.task_id);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
-          streamError = "生成已停止";
+          streamError = STOPPED_ERROR;
         } else if (err instanceof Error) {
           streamError = err.message || "请求失败";
         } else {
@@ -178,6 +181,8 @@ export function useChatStream(
         flushToActiveMessages();
         const finalMessages = activeMessagesRef.current;
         clearStreamState();
+        activeSessionIdRef.current = null;
+        setActiveSessionId(null);
         setActiveMessages([]);
         return { messages: finalMessages, error: streamError };
       }
@@ -187,7 +192,7 @@ export function useChatStream(
 
   const sendMessage = useCallback(
     async (text: string) => {
-      const currentSessionId = sessionIdRef.current;
+      const currentSessionId = sessionId;
       if (!text.trim()) return;
       if (!currentSessionId) {
         setError("未选择会话");
@@ -213,18 +218,22 @@ export function useChatStream(
         [userMessage, assistantMessage],
       );
 
-      if (!streamError) {
+      if (!streamError || streamError === STOPPED_ERROR) {
         const assistant = messages.find((m) => m.role === "assistant");
         if (assistant) {
-          onComplete?.({ userMessage, assistantMessage: assistant });
+          onComplete?.({
+            sessionId: currentSessionId,
+            userMessage,
+            assistantMessage: assistant,
+          });
         }
       }
     },
-    [runStream, onComplete],
+    [runStream, onComplete, sessionId],
   );
 
   const resumeOnMount = useCallback(() => {
-    const currentSessionId = sessionIdRef.current;
+    const currentSessionId = sessionId;
     if (!currentSessionId) return;
     const mark = sessionStorage.getItem(getStorageKey(currentSessionId));
     if (!mark) return;
@@ -239,20 +248,24 @@ export function useChatStream(
 
     runStream({ task_id: currentSessionId }, [assistantMessage]).then(
       ({ messages, error: streamError }) => {
-        if (!streamError) {
+        if (!streamError || streamError === STOPPED_ERROR) {
           const assistant = messages.find((m) => m.role === "assistant");
           if (assistant) {
-            onComplete?.({ userMessage: null, assistantMessage: assistant });
+            onComplete?.({
+              sessionId: currentSessionId,
+              userMessage: null,
+              assistantMessage: assistant,
+            });
           }
         }
       },
     );
-  }, [runStream, onComplete]);
+  }, [runStream, onComplete, sessionId]);
 
   const stop = useCallback(() => {
-    const currentSessionId = sessionIdRef.current;
+    const currentSessionId = activeSessionIdRef.current;
     if (currentSessionId) {
-      sessionStorage.removeItem(getStorageKey(currentSessionId));
+      clearReconnectRun(currentSessionId);
     }
     abortControllerRef.current?.abort();
     clearStreamState();
@@ -271,6 +284,7 @@ export function useChatStream(
 
   return {
     activeMessages,
+    activeSessionId,
     sendMessage,
     resumeOnMount,
     stop,
